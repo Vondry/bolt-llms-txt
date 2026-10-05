@@ -1,3 +1,6 @@
-reference_extension:
-  resource: '../../vendor/acmecorp/reference-extension/src/Controller/'
+# /llms.txt. Copied to config/routes/extension_bolt-llms-txt.yaml by
+# `extensions:configure`, which the kernel loads before config/routes.yaml, so the
+# route wins over Bolt's own frontend routes.
+llms_txt:
+  resource: '../../vendor/tomvondracek/bolt-llms-txt/src/Controller/'
   type: attribute

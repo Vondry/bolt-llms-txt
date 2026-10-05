@@ -1,0 +1,45 @@
+name: Tests
+
+on:
+  pull_request: null
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+env:
+  COMPOSER_CACHE_DIR: /tmp/composer-cache
+
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: [ '8.2', '8.3', '8.4', '8.5' ]
+
+    name: PHPUnit - PHP ${{ matrix.php-version }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      # see https://github.com/shivammathur/setup-php
+      - uses: shivammathur/setup-php@b604ade2a87db23f8871b7182e69ec5e75effb45 # v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: json, mbstring, pdo, curl, pdo_sqlite
+          coverage: none
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ${{ env.COMPOSER_CACHE_DIR }}
+          key: ${{ runner.os }}-${{ matrix.php-version }}-${{ hashFiles('**/composer.json') }}
+
+      - run: composer install --no-progress --no-interaction
+
+      - run: vendor/bin/phpunit --colors=always

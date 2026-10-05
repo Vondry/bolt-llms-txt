@@ -1,0 +1,48 @@
+{#- Generic llms.txt (https://llmstxt.org) shipped with tomvondracek/bolt-llms-txt.
+
+    Rendered while the theme has no `llms.txt.twig` of its own: the site's name and payoff, then one
+    section per ContentType with pages, listing its records. A template of your own can say much
+    more; see the extension's README.
+
+    Layout follows the spec: H1, an optional blockquote, free text without headings, then H2
+    sections that contain only `- [name](url): notes` lists.
+
+    The `.txt.twig` extension switches Twig autoescaping off, so every CMS value goes through
+    `html_to_text` / `markdown_label`. Variables: `today` (Y-m-d), `now`, `baseUrl`, `locale`. -#}
+{%- set siteName = config.get('general/sitename')|html_to_text ?: app.request.host -%}
+{%- set payoff = config.get('general/payoff')|html_to_text -%}
+{%- set textFieldTypes = ['text', 'textarea', 'html', 'markdown', 'redactor', 'article'] -%}
+{#- Singletons (e.g. the homepage) and viewless types have no pages of their own to list. -#}
+{%- set contentTypes = config.get('contenttypes')|filter(contentType => not contentType.viewless and not contentType.singleton) -%}
+# {{ siteName }}
+
+{% if payoff is not empty %}
+> {{ payoff }}
+
+{% endif %}
+This file is generated from the website's content management system; it lists what {{ baseUrl }} showed on {{ today }}.
+
+## Website
+
+- [Homepage]({{ baseUrl }}/): the home page of {{ siteName }}.
+
+{% for contentType in contentTypes %}
+{#- `page 1`, so `?page=` in the URL can never pick another page. -#}
+{% setcontent records = contentType.slug limit 50 page 1 %}
+{% if records is not empty %}
+## {{ contentType.name|html_to_text }}
+
+{% for record in records %}
+{#- The record's text fields except its title, like Bolt's `|excerpt`, but each field converted on its
+    own, so paragraphs and fields don't run together. -#}
+{% set titleFields = record|title_fields_names %}
+{% set excerpt = record.fields
+    |filter(field => field.type in textFieldTypes and field.name not in titleFields)
+    |map(field => '<p>' ~ field ~ '</p>')
+    |join
+    |html_to_text(200) %}
+- [{{ record|title|markdown_label }}]({{ record|link(true) }}){{ excerpt is not empty ? ': ' ~ excerpt }}
+{% endfor %}
+
+{% endif %}
+{% endfor %}

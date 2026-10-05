@@ -2,43 +2,27 @@
 
 declare(strict_types=1);
 
-namespace AcmeCorp\ReferenceExtension;
+namespace Tomvondracek\LlmsTxt;
 
 use Bolt\Extension\BaseExtension;
 
 class Extension extends BaseExtension
 {
-    /**
-     * Return the full name of the extension
-     */
     public function getName(): string
     {
-        return 'AcmeCorp ReferenceExtension';
+        return 'llms.txt';
     }
 
-    /**
-     * Ran automatically, if the current request is in a browser.
-     * You can use this method to set up things in your extension.
-     *
-     * Note: This runs on every request. Make sure what happens here is quick
-     * and efficient.
-     */
     public function initialize(): void
     {
-        $this->addWidget(new ReferenceWidget());
-
-        $this->addTwigNamespace('reference-extension');
-
-        $this->addListener('kernel.response', [new EventListener(), 'handleEvent']);
+        // The @llms-txt namespace is registered at container level, in the
+        // extension's config/services.yaml (copied to
+        // config/packages/extension_bolt-llms-txt.yaml by `extensions:configure`),
+        // so it also resolves on the CLI. This runtime registration is kept as a
+        // fallback for projects that have not run `extensions:configure` yet.
+        $this->addTwigNamespace('llms-txt');
     }
 
-    /**
-     * Ran automatically, if the current request is from the command line (CLI).
-     * You can use this method to set up things in your extension.
-     *
-     * Note: This runs on every request. Make sure what happens here is quick
-     * and efficient.
-     */
     public function initializeCli(): void
     {
     }

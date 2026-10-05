@@ -42,12 +42,14 @@ use Symplify\CodingStandard\Fixer\ArrayNotation\ArrayListItemNewlineFixer;
 use Symplify\CodingStandard\Fixer\ArrayNotation\ArrayOpenerAndCloserNewlineFixer;
 use Symplify\CodingStandard\Fixer\ArrayNotation\StandaloneLineInMultilineArrayFixer;
 use Symplify\CodingStandard\Fixer\Commenting\RemoveUselessDefaultCommentFixer;
+use Symplify\CodingStandard\Fixer\Spacing\MethodChainingNewlineFixer;
 use Symplify\CodingStandard\Fixer\Strict\BlankLineAfterStrictTypesFixer;
 use Symplify\EasyCodingStandard\Config\ECSConfig;
 
 return ECSConfig::configure()
     ->withPaths([
         __DIR__ . '/src',
+        __DIR__ . '/tests',
         __DIR__ . '/ecs.php',
     ])
     ->withCache('var/cache/ecs')
@@ -64,6 +66,9 @@ return ECSConfig::configure()
         UnaryOperatorSpacesFixer::class => null,
         ArrayOpenerAndCloserNewlineFixer::class => null,
         ArrayListItemNewlineFixer::class => null,
+        // Short chains such as `$qb->getQuery()->getResult()` read better on one
+        // line, and the fixer also splits a property read off its getter call.
+        MethodChainingNewlineFixer::class => null,
     ])
     ->withRules([
         StandaloneLineInMultilineArrayFixer::class,

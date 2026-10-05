@@ -1,3 +1,20 @@
-# Reference extension configuration file
+# llms.txt – configuration
+#
+# Copied to config/extensions/tomvondracek-llmstxt.yaml by
+# `bin/console extensions:configure --with-config`; edit it there. Without that
+# file these defaults apply.
 
-foo: Bar
+# Master switch. `false` makes /llms.txt return 404.
+enabled: true
+
+# Twig template rendered at /llms.txt, looked up in your theme. While the theme
+# has no such file, the generic template shipped with the extension is used.
+template: llms.txt.twig
+
+# Locale the file is rendered in: records, translations (`__()`, `|trans`) and
+# dates. Empty = the site's default locale.
+locale: ~
+
+# How long browsers and proxies may cache the response, in seconds. Clients can
+# revalidate with the ETag after that. 0 = always revalidate.
+max_age: 3600

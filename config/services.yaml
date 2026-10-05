@@ -1,1 +1,13 @@
-# An example of a services.yaml file in an extension
+# Copied to config/packages/extension_bolt-llms-txt.yaml by `extensions:configure`.
+#
+# The extension's classes are auto-registered (autowired + autoconfigured) by
+# Bolt's generated config/services_bolt.yaml: the controller, the Twig filters and
+# the response subscriber need nothing here.
+
+# Register the @llms-txt Twig namespace at container level, so it resolves
+# everywhere: web requests, the CLI (`debug:twig`, `lint:twig`, `cache:warmup`).
+# `BaseExtension::addTwigNamespace()` only prepends the path to the running Twig
+# environment during a web request, which leaves the console without it.
+twig:
+  paths:
+    '%kernel.project_dir%/vendor/tomvondracek/bolt-llms-txt/templates': llms-txt

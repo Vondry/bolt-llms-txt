@@ -1,38 +1,54 @@
 {
-    "name": "acmecorp/reference-extension",
-    "description": "📦 This Bolt extension can be used as a starting point to base your own extensions on.",
+    "name": "tomvondracek/bolt-llms-txt",
+    "description": "Bolt CMS extension that serves a dynamic /llms.txt (llmstxt.org), rendered from your own Twig template with HTTP caching, ETag and HTML-to-Markdown filters built in.",
     "type": "bolt-extension",
     "license": "MIT",
+    "keywords": ["bolt", "bolt-extension", "llms-txt", "llm", "ai", "seo", "twig"],
     "authors": [
         {
-            "name": "YourNameHere",
-            "email": "youremail@acme.com"
+            "name": "Tomáš Vondráček",
+            "email": "tomasvondrac@gmail.com"
         }
     ],
     "require": {
         "php": ">=8.2",
-        "twig/twig": "^3.3"
+        "ext-dom": "*",
+        "ext-libxml": "*",
+        "symfony/polyfill-php84": "^1.38.1",
+        "twig/twig": "^3.29"
     },
     "require-dev": {
-        "bolt/core": "^6.0",
+        "bolt/core": "^6.1.8",
         "phpstan/extension-installer": "1.4.3",
-        "phpstan/phpstan": "2.1.31",
-        "phpstan/phpstan-deprecation-rules": "2.0.3",
-        "rector/rector": "2.2.7",
-        "symplify/easy-coding-standard": "^13"
+        "phpstan/phpstan": "2.2.16",
+        "phpstan/phpstan-deprecation-rules": "2.0.5",
+        "phpunit/phpunit": "^11.5.56",
+        "rector/rector": "2.6.7",
+        "symplify/easy-coding-standard": "^13.3.2"
+    },
+    "conflict": {
+        "bolt/core": "<6.0 || >=7.0"
     },
     "autoload": {
         "psr-4": {
-            "AcmeCorp\\ReferenceExtension\\": "src/"
+            "Tomvondracek\\LlmsTxt\\": "src/"
         }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tomvondracek\\LlmsTxt\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit"
     },
     "minimum-stability": "dev",
     "prefer-stable": true,
     "extra": {
         "branch-alias": {
-            "dev-main": "2.0.x-dev"
+            "dev-main": "1.0.x-dev"
         },
-        "entrypoint": "AcmeCorp\\ReferenceExtension\\Extension"
+        "entrypoint": "Tomvondracek\\LlmsTxt\\Extension"
     },
     "config": {
         "allow-plugins": {
