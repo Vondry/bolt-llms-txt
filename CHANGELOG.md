@@ -27,3 +27,5 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `extensions:configure` has run. It is outside Bolt's frontend zone, so widgets never inject HTML into the text.
 - Validation of the config and route defaults: unknown keys and values of the wrong type are errors.
 - `X-Content-Type-Options: nosniff` on the response.
+- Server-side cache of the rendered file for `max_age` seconds, per template, locale, host and date, dropped on
+  every Doctrine flush that changes content. Logged-in users and debug mode bypass it.

@@ -16,6 +16,7 @@ use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Security\Core\Authentication\Token\Storage\TokenStorageInterface;
 use Symfony\Component\Translation\LocaleSwitcher;
+use Tomvondracek\LlmsTxt\LlmsTxtCache;
 use Tomvondracek\LlmsTxt\LlmsTxtConfig;
 use Tomvondracek\LlmsTxt\LlmsTxtConfigLoader;
 use Tomvondracek\LlmsTxt\LlmsTxtResponse;
@@ -60,6 +61,7 @@ final class LlmsTxtController extends ExtensionController
         private readonly ContainerBagInterface $parameters,
         private readonly SiteUrl $siteUrl,
         private readonly ClockInterface $clock,
+        private readonly LlmsTxtCache $cache,
     ) {
         parent::__construct($config);
     }
@@ -89,6 +91,7 @@ final class LlmsTxtController extends ExtensionController
         $now = $this->clock->now()
             ->setTimezone($this->timezone());
 
+        $templates = $this->templates($config);
         $context = [
             'today' => $now->format('Y-m-d'),
             'now' => $now,
@@ -98,14 +101,26 @@ final class LlmsTxtController extends ExtensionController
 
         // The translator (`__()`, `|trans`) and the Intl filters follow the
         // request's original locale; switch them for the rendering only.
-        $body = $this->localeSwitcher->runWithLocale(
+        $render = fn (): string => $this->localeSwitcher->runWithLocale(
             $locale,
-            fn (): string => $this->renderTemplate($this->templates($config), $context)
+            fn (): string => $this->renderTemplate($templates, $context)
         );
 
         // Templates must not depend on who is viewing; should one do so anyway, a
         // logged-in user's copy must not end up in a shared cache.
         $shared = $this->tokenStorage->getToken()?->getUser() === null;
+
+        // Logged-in users (editors checking their changes) and debug mode (template
+        // changes) always get a fresh rendering.
+        $body = $shared && $this->parameters->get('kernel.debug') !== true
+            ? $this->cache->get([
+                $templates,
+                $locale,
+                $context['today'],
+                $context['baseUrl'],
+                $request->getSchemeAndHttpHost() . $request->getBasePath(),
+            ], $config->maxAge, $render)
+            : $render();
 
         return LlmsTxtResponse::create($body, $config->maxAge, $request, $shared);
     }

@@ -10,6 +10,8 @@ use InvalidArgumentException;
 use LogicException;
 use PHPUnit\Framework\TestCase;
 use Symfony\Bridge\Twig\Extension\TranslationExtension;
+use Symfony\Component\Cache\Adapter\ArrayAdapter;
+use Symfony\Component\Cache\Adapter\TagAwareAdapter;
 use Symfony\Component\Clock\MockClock;
 use Symfony\Component\DependencyInjection\Container;
 use Symfony\Component\DependencyInjection\ParameterBag\ContainerBag;
@@ -26,6 +28,7 @@ use Symfony\Component\Translation\Loader\ArrayLoader as TranslationArrayLoader;
 use Symfony\Component\Translation\LocaleSwitcher;
 use Symfony\Component\Translation\Translator;
 use Tomvondracek\LlmsTxt\Controller\LlmsTxtController;
+use Tomvondracek\LlmsTxt\LlmsTxtCache;
 use Tomvondracek\LlmsTxt\LlmsTxtConfigLoader;
 use Tomvondracek\LlmsTxt\SiteUrl;
 use Twig\Environment;
@@ -50,6 +53,8 @@ final class LlmsTxtControllerTest extends TestCase
 
     private ?string $canonicalHomepage = null;
     private MockClock $clock;
+    private bool $debug = false;
+    private LlmsTxtCache $cache;
 
     protected function setUp(): void
     {
@@ -66,6 +71,7 @@ final class LlmsTxtControllerTest extends TestCase
         ], 'en');
 
         $this->clock = new MockClock('2026-03-01 12:00:00', 'UTC');
+        $this->cache = new LlmsTxtCache(new TagAwareAdapter(new ArrayAdapter()));
     }
 
     protected function tearDown(): void
@@ -160,6 +166,8 @@ final class LlmsTxtControllerTest extends TestCase
         mkdir($this->dir . '/theme/templates', 0o777, true);
         file_put_contents($this->dir . '/theme/templates/llms.txt.twig', '# From the theme');
         $this->boltConfig['theme/template_directory'] = 'templates';
+        // Render twice, rather than serving the second request from the cache.
+        $this->debug = true;
         $filesystemLoader = new FilesystemLoader();
         $loader = new ChainLoader([
             new ArrayLoader([
@@ -306,6 +314,106 @@ final class LlmsTxtControllerTest extends TestCase
         self::assertSame("en\n", $response->getContent());
     }
 
+    public function testServesTheCachedRenderingUntilContentChanges(): void
+    {
+        self::assertSame("# One\n", $this->invoke([
+            'llms.txt.twig' => '# One',
+        ])->getContent());
+        self::assertSame("# One\n", $this->invoke([
+            'llms.txt.twig' => '# Two',
+        ])->getContent(), 'from the cache');
+
+        $this->cache->invalidate();
+
+        self::assertSame("# Two\n", $this->invoke([
+            'llms.txt.twig' => '# Two',
+        ])->getContent());
+    }
+
+    public function testCachedRenderingKeepsItsEtag(): void
+    {
+        $first = $this->invoke([
+            'llms.txt.twig' => '# One',
+        ]);
+        $request = Request::create('https://example.com/llms.txt');
+        $request->headers->set('If-None-Match', (string) $first->getEtag());
+
+        $second = $this->invoke([
+            'llms.txt.twig' => '# Two',
+        ], $request);
+
+        self::assertSame(Response::HTTP_NOT_MODIFIED, $second->getStatusCode());
+    }
+
+    public function testLoggedInUserGetsAFreshRenderingThatIsNotCached(): void
+    {
+        $this->invoke([
+            'llms.txt.twig' => '# Anonymous',
+        ]);
+        $tokenStorage = new TokenStorage();
+        $tokenStorage->setToken(new UsernamePasswordToken(new InMemoryUser('editor', null), 'main'));
+
+        self::assertSame("# Editor\n", $this->invoke([
+            'llms.txt.twig' => '# Editor',
+        ], null, $tokenStorage)->getContent());
+        self::assertSame("# Anonymous\n", $this->invoke([
+            'llms.txt.twig' => '# Next',
+        ])->getContent());
+    }
+
+    public function testDebugModeAlwaysRenders(): void
+    {
+        $this->debug = true;
+
+        $this->invoke([
+            'llms.txt.twig' => '# One',
+        ]);
+
+        self::assertSame("# Two\n", $this->invoke([
+            'llms.txt.twig' => '# Two',
+        ])->getContent());
+    }
+
+    public function testMaxAgeZeroAlwaysRenders(): void
+    {
+        file_put_contents($this->dir . '/tomvondracek-llmstxt.yaml', "max_age: 0\n");
+
+        $this->invoke([
+            'llms.txt.twig' => '# One',
+        ]);
+
+        self::assertSame("# Two\n", $this->invoke([
+            'llms.txt.twig' => '# Two',
+        ])->getContent());
+    }
+
+    public function testHostLocaleTemplateAndDateHaveTheirOwnEntries(): void
+    {
+        $templates = [
+            'llms.txt.twig' => '{{ app_host }} {{ locale }} {{ today }}',
+            'llms-full.txt.twig' => 'full',
+        ];
+        $this->invoke($templates);
+
+        $otherHost = Request::create('https://other.example/llms.txt');
+        self::assertSame("other.example cs 2026-03-01\n", $this->invoke($templates, $otherHost)->getContent());
+
+        $otherLocale = Request::create('https://example.com/llms.txt');
+        $otherLocale->attributes->set('_route_params', [
+            'locale' => 'en',
+        ]);
+        self::assertSame("example.com en 2026-03-01\n", $this->invoke($templates, $otherLocale)->getContent());
+
+        $otherTemplate = Request::create('https://example.com/llms-full.txt');
+        $otherTemplate->attributes->set('_route_params', [
+            'template' => 'llms-full.txt.twig',
+        ]);
+        self::assertSame("full\n", $this->invoke($templates, $otherTemplate)->getContent());
+
+        $this->clock->modify('+1 day');
+        self::assertSame("example.com cs 2026-03-02\n", $this->invoke($templates)->getContent());
+    }
+
     /**
      * @param array<string, string> $templates
      */
@@ -315,6 +423,7 @@ final class LlmsTxtControllerTest extends TestCase
 
         $twig = new Environment($loader ?? new ArrayLoader($templates));
         $twig->addExtension(new TranslationExtension($this->translator));
+        $twig->addGlobal('app_host', $request->getHost());
 
         $boltConfig = self::createStub(Config::class);
         $boltConfig->method('getPath')
@@ -330,6 +439,7 @@ final class LlmsTxtControllerTest extends TestCase
         $parameters = new ContainerBag(new Container(new ParameterBag([
             'locale' => 'cs',
             'locales_array' => $this->locales,
+            'kernel.debug' => $this->debug,
         ])));
 
         $controller = new LlmsTxtController(
@@ -341,6 +451,7 @@ final class LlmsTxtControllerTest extends TestCase
             $parameters,
             new SiteUrl($canonical, $requestStack),
             $this->clock,
+            $this->cache,
         );
 
         return $controller($request);

@@ -27,7 +27,10 @@ use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Security\Core\Authentication\Token\Storage\TokenStorageInterface;
 use Symfony\Component\Translation\LocaleSwitcher;
 use Symfony\Component\Yaml\Yaml;
+use Symfony\Contracts\Cache\TagAwareCacheInterface;
 use Tomvondracek\LlmsTxt\Controller\LlmsTxtController;
+use Tomvondracek\LlmsTxt\EventListener\ContentChangeListener;
+use Tomvondracek\LlmsTxt\LlmsTxtCache;
 use Tomvondracek\LlmsTxt\LlmsTxtConfigLoader;
 use Tomvondracek\LlmsTxt\SiteUrl;
 use Twig\Environment;
@@ -112,6 +115,21 @@ final class ConfigServicesTest extends TestCase
         $this->assertControllerIsAutowired($container);
     }
 
+    public function testContentChangeListenerListensToDoctrineFlushes(): void
+    {
+        $definition = $this->compile(true)->getDefinition(ContentChangeListener::class);
+
+        self::assertSame([[
+            'event' => 'onFlush',
+        ], [
+            'event' => 'postFlush',
+        ]], $definition->getTag('doctrine.event_listener'));
+        $arguments = $definition->getArguments();
+        self::assertCount(1, $arguments);
+        self::assertInstanceOf(Reference::class, $arguments[0]);
+        self::assertSame(LlmsTxtCache::class, (string) $arguments[0]);
+    }
+
     private function compile(bool $configured): ContainerBuilder
     {
         $container = new ContainerBuilder();
@@ -121,7 +139,7 @@ final class ConfigServicesTest extends TestCase
         $container->setParameter('locales_array', ['cs', 'en']);
 
         // Services of FrameworkBundle, SecurityBundle, TwigBundle and Bolt.
-        foreach ([ContainerInterface::class, Config::class, Environment::class, Canonical::class, RequestStack::class, LocaleSwitcher::class, TokenStorageInterface::class, ContainerBagInterface::class, ClockInterface::class] as $service) {
+        foreach ([ContainerInterface::class, Config::class, Environment::class, Canonical::class, RequestStack::class, LocaleSwitcher::class, TokenStorageInterface::class, ContainerBagInterface::class, ClockInterface::class, TagAwareCacheInterface::class] as $service) {
             $container->register($service)
                 ->setSynthetic(true);
         }
@@ -164,8 +182,11 @@ final class ConfigServicesTest extends TestCase
             (new YamlFileLoader($container, new FileLocator(dirname(__DIR__) . '/config')))->load('services.yaml');
         }
 
-        // Controllers are public in a project, so errors in them surface when compiling.
+        // Controllers are public in a project, so errors in them surface when compiling;
+        // DoctrineBundle makes its listeners available the same way.
         $container->getDefinition(LlmsTxtController::class)
+            ->setPublic(true);
+        $container->getDefinition(ContentChangeListener::class)
             ->setPublic(true);
         $container->compile(true);
 
@@ -177,7 +198,7 @@ final class ConfigServicesTest extends TestCase
         $arguments = $container->getDefinition(LlmsTxtController::class)->getArguments();
 
         self::assertEquals(
-            [Config::class, Environment::class, LlmsTxtConfigLoader::class, LocaleSwitcher::class, TokenStorageInterface::class, ContainerBagInterface::class, SiteUrl::class, ClockInterface::class],
+            [Config::class, Environment::class, LlmsTxtConfigLoader::class, LocaleSwitcher::class, TokenStorageInterface::class, ContainerBagInterface::class, SiteUrl::class, ClockInterface::class, LlmsTxtCache::class],
             // Services used once are inlined as their definition.
             array_map(static fn (mixed $argument): ?string => match (true) {
                 $argument instanceof Reference => (string) $argument,
