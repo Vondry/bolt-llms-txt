@@ -9,7 +9,7 @@ use DOMElement;
 use DOMNode;
 use DOMText;
 use Stringable;
-use Symfony\Component\HttpFoundation\RequestStack;
+use Tomvondracek\LlmsTxt\SiteUrl;
 use Twig\Extension\AbstractExtension;
 use Twig\TwigFilter;
 
@@ -20,15 +20,34 @@ use Twig\TwigFilter;
  * Filters:
  *  - `html_to_text`: rich text or any field value as one line of plain text; with a maximum
  *    length, shortened at a word boundary (links then keep only their text, so no link is cut)
- *  - `markdown_label`: the same, safe as the [label] of a Markdown link
+ *  - `markdown_label`: the text only (links too keep only their text), safe as the [label] of a
+ *    Markdown link
  *  - `markdown_url`: a URL field as an absolute URL for the (url) of a Markdown link, or ''
  */
 final class HtmlToTextExtension extends AbstractExtension
 {
     /**
-     * Elements whose content is never visible text.
+     * Elements whose content is never visible text, or not text a reader would want: a full
+     * document's <title>, form controls, embedded graphics and media fallbacks.
      */
-    private const SKIPPED = ['script', 'style', 'template', 'iframe', 'object', 'noscript', 'head'];
+    private const SKIPPED = [
+        'script' => true,
+        'style' => true,
+        'template' => true,
+        'iframe' => true,
+        'object' => true,
+        'noscript' => true,
+        'head' => true,
+        'title' => true,
+        'svg' => true,
+        'math' => true,
+        'select' => true,
+        'datalist' => true,
+        'textarea' => true,
+        'audio' => true,
+        'video' => true,
+        'canvas' => true,
+    ];
 
     /**
      * Elements that separate words, so their content must not merge with its neighbours. The text is
@@ -37,21 +56,44 @@ final class HtmlToTextExtension extends AbstractExtension
      * read "Adults 600 CZK Kids free". Nothing is added at the very end, so a one-paragraph title stays as-is.
      */
     private const BLOCKS = [
-        'p' => '.', 'div' => '.', 'h1' => ':', 'h2' => ':', 'h3' => ':', 'h4' => ':', 'h5' => ':', 'h6' => ':',
-        'ul' => '.', 'ol' => '.', 'li' => ';', 'dl' => '.', 'dt' => ':', 'dd' => ';',
-        'table' => '.', 'tr' => '.', 'td' => ';', 'th' => ';', 'blockquote' => '.', 'pre' => '.',
-        'figure' => '.', 'figcaption' => '.', 'section' => '.', 'article' => '.', 'address' => '.',
+        'p' => '.',
+        'div' => '.',
+        'h1' => ':',
+        'h2' => ':',
+        'h3' => ':',
+        'h4' => ':',
+        'h5' => ':',
+        'h6' => ':',
+        'ul' => '.',
+        'ol' => '.',
+        'li' => ';',
+        'dl' => '.',
+        'dt' => ':',
+        'dd' => ';',
+        'table' => '.',
+        'tr' => '.',
+        'td' => ';',
+        'th' => ';',
+        'blockquote' => '.',
+        'pre' => '.',
+        'figure' => '.',
+        'figcaption' => '.',
+        'section' => '.',
+        'article' => '.',
+        'address' => '.',
         'hr' => '.',
     ];
 
     /**
-     * Text that already ends a sentence or clause, optionally followed by closing quotes or brackets.
-     * \p{Pi} too, because Czech closes quotes with “ (an "initial" quote in Unicode): „Ahoj.“
+     * A web address typed without its scheme: host labels, an alphabetic top-level domain that is
+     * not a common file extension (`page.html` is a file, not a host), an optional port and path.
      */
-    private const TERMINATED = '/[.!?…:;,][\p{Pi}\p{Pf}\p{Pe}"\']*$/u';
+    private const BARE_HOST = '~^(?:[\p{L}\p{N}](?:[\p{L}\p{N}-]*[\p{L}\p{N}])?\.)+(?!(?:html?|php|aspx?|jsp|pdf|jpe?g|png|gif|webp|svg|docx?|xlsx?|pptx?|txt|csv)(?:[:/?#]|$))\p{L}{2,}(?::\d{1,5})?(?:[/?#]\S*)?$~iu';
+
+    private const EMAIL = '~^[^\s@/:<>()\[\]]+@(?:[\p{L}\p{N}-]+\.)+\p{L}{2,}$~u';
 
     public function __construct(
-        private readonly RequestStack $requestStack,
+        private readonly SiteUrl $siteUrl,
     ) {
     }
 
@@ -70,30 +112,10 @@ final class HtmlToTextExtension extends AbstractExtension
      */
     public function htmlToText(mixed $html, ?int $maxLength = null): string
     {
-        $html = is_scalar($html) || $html instanceof Stringable ? (string) $html : '';
-        if (mb_trim($html) === '') {
-            return '';
-        }
+        // With a maximum length, the rest of a long text is not even read.
+        $text = $this->text($html, $maxLength === null, $maxLength);
 
-        $document = new DOMDocument();
-        $useInternalErrors = libxml_use_internal_errors(true);
-        // The XML declaration makes libxml read the fragment as UTF-8 instead of Latin-1.
-        $document->loadHTML('<?xml encoding="UTF-8"?><body>' . $html . '</body>', LIBXML_NONET);
-        libxml_clear_errors();
-        libxml_use_internal_errors($useInternalErrors);
-
-        $body = $document->getElementsByTagName('body')
-            ->item(0);
-
-        if ($body === null) {
-            return '';
-        }
-
-        if ($maxLength === null) {
-            return $this->collapse($this->nodeText($body, true));
-        }
-
-        return $this->shorten($this->collapse($this->nodeText($body, false)), $maxLength);
+        return $maxLength === null ? $text : $this->shorten($text, $maxLength);
     }
 
     /**
@@ -102,82 +124,127 @@ final class HtmlToTextExtension extends AbstractExtension
      */
     public function markdownLabel(mixed $text): string
     {
-        return $this->label($this->htmlToText($text));
+        return $this->label($this->text($text, false));
     }
 
     /**
      * Turns a URL field (raw, so entities are decoded once) into an absolute URL usable as the (url)
      * part of a Markdown link, or '' if it is not a link a reader can follow. Unlike links inside
-     * rich text, a bare host such as `www.example.com` counts as a web address here: URL fields are
-     * typed in by editors, who often leave out the scheme.
+     * rich text, a bare host such as `www.example.com` counts as a web address here, and an e-mail
+     * address as a mailto: link: URL fields are typed in by editors, who often leave out the scheme.
      */
     public function markdownUrl(mixed $url): string
     {
-        return $this->absoluteUrl($this->htmlToText($url), true) ?? '';
+        $url = is_scalar($url) || $url instanceof Stringable ? (string) $url : '';
+
+        return $this->absoluteUrl(html_entity_decode($url, ENT_QUOTES | ENT_HTML5, 'UTF-8'), true) ?? '';
     }
 
-    private function nodeText(DOMNode $node, bool $links): string
+    private function text(mixed $html, bool $links, ?int $maxLength = null): string
     {
-        $text = '';
-        // Punctuation owed to the block (or line break) that ended last, added once more text follows.
-        $pending = null;
+        $html = is_scalar($html) || $html instanceof Stringable ? (string) $html : '';
 
+        // Plain text, such as most titles, needs no parsing.
+        if (! str_contains($html, '<') && ! str_contains($html, '&')) {
+            return PlainTextBuffer::collapse($html);
+        }
+
+        // libxml drops everything after a </body> or </html> in the field.
+        $html = preg_replace('~</(?:body|html)\s*>~i', '', $html) ?? $html;
+
+        $document = new DOMDocument();
+        $useInternalErrors = libxml_use_internal_errors(true);
+        // Only ASCII reaches libxml, so neither its Latin-1 default nor a <meta charset> in the
+        // field can garble the text. LIBXML_PARSEHUGE lifts the nesting limit of 256 levels.
+        $document->loadHTML(
+            '<body>' . mb_encode_numericentity($html, [0x80, 0x10FFFF, 0, 0x1FFFFF], 'UTF-8') . '</body>',
+            LIBXML_NONET | LIBXML_PARSEHUGE
+        );
+        libxml_clear_errors();
+        libxml_use_internal_errors($useInternalErrors);
+
+        // The parser always creates the <body> element.
+        $buffer = new PlainTextBuffer($maxLength);
+        $this->walk($document->getElementsByTagName('body')->item(0) ?? $document, $buffer, $links);
+
+        return $buffer->toString();
+    }
+
+    private function walk(DOMNode $node, PlainTextBuffer $buffer, bool $links): void
+    {
         foreach ($node->childNodes as $child) {
+            if ($buffer->isFull()) {
+                return;
+            }
+
             if ($child instanceof DOMText) {
-                $part = $child->data;
-            } elseif ($child instanceof DOMElement) {
-                $tag = mb_strtolower($child->tagName);
-                if (in_array($tag, self::SKIPPED, true)) {
-                    continue;
-                }
+                $buffer->write($child->data);
 
-                if ($tag === 'br') {
-                    // A line break inside a paragraph ends the line's clause, like a list item.
-                    $pending ??= ';';
-                    $text .= ' ';
-
-                    continue;
-                }
-
-                // An image's alt text is the text a reader would get instead of the picture.
-                $part = $tag === 'img' ? $child->getAttribute('alt') : $this->nodeText($child, $links);
-
-                if ($tag === 'a' && $links) {
-                    $part = $this->markdownLink($child->getAttribute('href'), $part);
-                } elseif (isset(self::BLOCKS[$tag])) {
-                    $text .= ' ';
-                    if ($this->collapse($part) !== '') {
-                        $text = $this->terminate($text, $pending ?? ';') . ' ' . $part . ' ';
-                        $pending = self::BLOCKS[$tag];
-                    } elseif ($tag === 'hr') {
-                        // A rule has no text of its own but still separates what is around it.
-                        $pending ??= self::BLOCKS[$tag];
-                    }
-
-                    continue;
-                }
-            } else {
                 continue;
             }
 
-            if ($pending !== null && $this->collapse($part) !== '') {
-                // Text that starts with its own punctuation (`<p>A</p>, more`) needs no extra mark.
-                $text = preg_match('/^\s*[.,;:!?…)\]]/u', $part) === 1 ? mb_rtrim($text) : $this->terminate($text, $pending) . ' ';
-                $pending = null;
+            if (! $child instanceof DOMElement) {
+                continue;
             }
-            $text .= $part;
-        }
 
-        return $text;
+            $tag = mb_strtolower($child->tagName);
+            if (isset(self::SKIPPED[$tag])) {
+                continue;
+            }
+
+            if ($tag === 'br') {
+                // A line break inside a paragraph ends the line's clause, like a list item.
+                $buffer->setPending($buffer->pending() ?? ';');
+                $buffer->space();
+
+                continue;
+            }
+
+            if ($tag === 'img') {
+                // An image's alt text is the text a reader would get instead of the picture.
+                $buffer->write($child->getAttribute('alt'));
+
+                continue;
+            }
+
+            if ($tag === 'a' && $links) {
+                $inner = new PlainTextBuffer();
+                $this->walk($child, $inner, true);
+                $buffer->write($this->markdownLink($child->getAttribute('href'), $inner->toString()));
+
+                continue;
+            }
+
+            $punctuation = self::BLOCKS[$tag] ?? null;
+            if ($punctuation === null) {
+                $this->walk($child, $buffer, $links);
+
+                continue;
+            }
+
+            // A block starts a new clause, and ends one once it has text.
+            $before = $buffer->pending();
+            $writes = $buffer->writes();
+            $buffer->space();
+            $buffer->setPending($before ?? ';');
+            $this->walk($child, $buffer, $links);
+            $buffer->space();
+
+            if ($buffer->writes() > $writes) {
+                $buffer->setPending($punctuation);
+            } else {
+                // A rule has no text of its own but still separates what is around it.
+                $buffer->setPending($tag === 'hr' ? ($before ?? $punctuation) : $before);
+            }
+        }
     }
 
-    private function markdownLink(string $href, string $innerText): string
+    private function markdownLink(string $href, string $text): string
     {
-        $text = $this->collapse($innerText);
         $href = mb_trim($href);
 
         // `mailto:x@y.cz` labelled `x@y.cz` (or `tel:` labelled with the number) reads fine as-is.
-        if (preg_match('~^(mailto|tel):(.*)$~i', $href, $match) === 1 && $this->collapse($match[2]) === $text) {
+        if (preg_match('~^(mailto|tel):(.*)$~i', $href, $match) === 1 && PlainTextBuffer::collapse($match[2]) === $text) {
             return $text;
         }
 
@@ -196,46 +263,41 @@ final class HtmlToTextExtension extends AbstractExtension
     {
         $href = mb_trim($href);
 
-        if (preg_match('~^([a-z][a-z0-9+.-]*):~i', $href, $match) === 1) {
+        if ($bareHostIsWeb && preg_match(self::BARE_HOST, $href) === 1) {
+            // Before the scheme check, which would read `www.example.com:8080` as scheme and path.
+            $href = 'https://' . $href;
+        } elseif ($bareHostIsWeb && preg_match(self::EMAIL, $href) === 1) {
+            $href = 'mailto:' . $href;
+        } elseif (preg_match('~^([a-z][a-z0-9+.-]*):~i', $href, $match) === 1) {
             // Anything but these (javascript:, data:, …) is not a link a reader can follow.
             if (! in_array(mb_strtolower($match[1]), ['http', 'https', 'mailto', 'tel'], true)) {
                 return null;
             }
         } elseif (str_starts_with($href, '/')) {
             // Site-relative links are useless outside the page, so make them absolute.
-            $request = $this->requestStack->getCurrentRequest();
-            if ($request === null) {
+            $origin = $this->siteUrl->origin();
+            if ($origin === null) {
                 return null;
             }
-            $href = (str_starts_with($href, '//') ? $request->getScheme() . ':' : $request->getSchemeAndHttpHost()) . $href;
-        } elseif ($bareHostIsWeb && preg_match('~^[a-z0-9-]+(\.[a-z0-9-]+)+([/?#].*)?$~i', $href) === 1) {
-            $href = 'https://' . $href;
+            $href = str_starts_with($href, '//') ? mb_strstr($origin, '//', true) . $href : $origin . $href;
         } else {
             // Empty, fragment-only (#anchor) or page-relative: there is no page to resolve it against.
             return null;
         }
 
-        return str_replace([' ', '(', ')'], ['%20', '%28', '%29'], $href);
+        // Spaces, parentheses and angle brackets would end the (url) or <autolink> early.
+        return preg_replace_callback('/[\x00-\x20()<>]/', static fn (array $match): string => rawurlencode($match[0]), $href) ?? $href;
     }
 
     /**
      * Makes text safe as the [label] of a Markdown link. Square brackets become round ones rather than
      * being backslash-escaped, because simple llms.txt parsers match the label as `\[[^\]]+\]` and
-     * would keep the backslashes. With no brackets left, a backslash cannot break the label either.
+     * would keep the backslashes. With no brackets left, only a backslash at the very end could still
+     * escape the closing bracket, so it is dropped.
      */
     private function label(string $text): string
     {
-        return strtr($text, ['[' => '(', ']' => ')']);
-    }
-
-    /**
-     * Ends text with `$punctuation` unless it is empty or already ends with punctuation.
-     */
-    private function terminate(string $text, string $punctuation): string
-    {
-        $text = $this->collapse($text);
-
-        return $text === '' || preg_match(self::TERMINATED, $text) === 1 ? $text : $text . $punctuation;
+        return mb_rtrim(strtr($text, ['[' => '(', ']' => ')']), '\\');
     }
 
     /**
@@ -248,7 +310,11 @@ final class HtmlToTextExtension extends AbstractExtension
             return $text;
         }
 
-        $cut = mb_substr($text, 0, max(0, $maxLength - 1));
+        if ($maxLength < 1) {
+            return '';
+        }
+
+        $cut = mb_substr($text, 0, $maxLength - 1);
         // The cut ends a word when the next character is a space or punctuation.
         $endsWord = preg_match('/^[\s.,;:!?…)\]]/u', mb_substr($text, $maxLength - 1, 1)) === 1;
         $lastSpace = mb_strrpos($cut, ' ');
@@ -257,10 +323,5 @@ final class HtmlToTextExtension extends AbstractExtension
         }
 
         return mb_rtrim($cut, " \t.,;:") . '…';
-    }
-
-    private function collapse(string $text): string
-    {
-        return mb_trim(preg_replace('/[\s\x{00A0}]+/u', ' ', $text) ?? $text);
     }
 }

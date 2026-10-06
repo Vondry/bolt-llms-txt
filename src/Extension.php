@@ -6,7 +6,7 @@ namespace Tomvondracek\LlmsTxt;
 
 use Bolt\Extension\BaseExtension;
 
-class Extension extends BaseExtension
+final class Extension extends BaseExtension
 {
     public function getName(): string
     {
@@ -21,9 +21,5 @@ class Extension extends BaseExtension
         // so it also resolves on the CLI. This runtime registration is kept as a
         // fallback for projects that have not run `extensions:configure` yet.
         $this->addTwigNamespace('llms-txt');
-    }
-
-    public function initializeCli(): void
-    {
     }
 }

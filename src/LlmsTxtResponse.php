@@ -28,7 +28,11 @@ final class LlmsTxtResponse
     {
         $body = self::normalize($body);
 
-        $response = new Response($body, Response::HTTP_OK, ['Content-Type' => self::CONTENT_TYPE]);
+        $response = new Response($body, Response::HTTP_OK, [
+            'Content-Type' => self::CONTENT_TYPE,
+            // The text can quote HTML from the content; browsers must not render it.
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
         $response->setMaxAge($maxAge);
         $response->setEtag(hash('xxh128', $body));
 
@@ -54,6 +58,8 @@ final class LlmsTxtResponse
      * Unix line endings, at most one blank line in a row (Twig tags and
      * conditionals easily leave more, also lines holding only the indentation of a
      * tag), no blank lines at the start and exactly one newline at the end.
+     *
+     * @internal
      */
     public static function normalize(string $body): string
     {

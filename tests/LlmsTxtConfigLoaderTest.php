@@ -7,6 +7,7 @@ namespace Tomvondracek\LlmsTxt\Tests;
 use Bolt\Configuration\Config;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\Yaml\Exception\ParseException;
 use Tomvondracek\LlmsTxt\LlmsTxtConfigLoader;
 
 final class LlmsTxtConfigLoaderTest extends TestCase
@@ -24,14 +25,6 @@ final class LlmsTxtConfigLoaderTest extends TestCase
         (new Filesystem())->remove($this->dir);
     }
 
-    private function loader(): LlmsTxtConfigLoader
-    {
-        $boltConfig = $this->createMock(Config::class);
-        $boltConfig->expects(self::once())->method('getPath')->with('extensions_config')->willReturn($this->dir);
-
-        return new LlmsTxtConfigLoader($boltConfig);
-    }
-
     public function testFallsBackToShippedDefaults(): void
     {
         self::assertSame(3600, $this->loader()->load()->maxAge);
@@ -42,27 +35,19 @@ final class LlmsTxtConfigLoaderTest extends TestCase
         file_put_contents($this->dir . '/tomvondracek-llmstxt.yaml', "max_age: 600\nlocale: en\n");
         file_put_contents($this->dir . '/tomvondracek-llmstxt_local.yaml', "max_age: 0\n");
 
-        $loader = $this->loader();
-        $config = $loader->load();
+        $config = $this->loader()->load();
 
         self::assertSame(0, $config->maxAge);
         self::assertSame('en', $config->locale);
-        self::assertSame($config, $loader->load(), 'cached per request');
     }
 
-    public function testResetForgetsTheConfig(): void
+    public function testReadsChangesOnTheNextLoad(): void
     {
-        $boltConfig = $this->createStub(Config::class);
-        $boltConfig->method('getPath')
-            ->willReturn($this->dir);
-        $loader = new LlmsTxtConfigLoader($boltConfig);
-
+        $loader = $this->loader();
         self::assertSame(3600, $loader->load()->maxAge);
 
         file_put_contents($this->dir . '/tomvondracek-llmstxt.yaml', "max_age: 60\n");
-        self::assertSame(3600, $loader->load()->maxAge, 'still cached');
 
-        $loader->reset();
         self::assertSame(60, $loader->load()->maxAge);
     }
 
@@ -71,6 +56,15 @@ final class LlmsTxtConfigLoaderTest extends TestCase
         file_put_contents($this->dir . '/tomvondracek-llmstxt_local.yaml', "enabled: false\n");
 
         self::assertFalse($this->loader()->load()->enabled);
+    }
+
+    public function testMalformedYamlIsAnError(): void
+    {
+        file_put_contents($this->dir . '/tomvondracek-llmstxt.yaml', "max_age: [\n");
+
+        $this->expectException(ParseException::class);
+
+        $this->loader()->load();
     }
 
     public function testParseFilesSkipsMissingAndNonArrayFiles(): void
@@ -86,5 +80,14 @@ final class LlmsTxtConfigLoaderTest extends TestCase
             ],
             LlmsTxtConfigLoader::parseFiles([$this->dir . '/missing.yaml', $this->dir . '/scalar.yaml', $this->dir . '/a.yaml', $this->dir . '/b.yaml'])
         );
+    }
+
+    private function loader(): LlmsTxtConfigLoader
+    {
+        $boltConfig = self::createStub(Config::class);
+        $boltConfig->method('getPath')
+            ->willReturnCallback(fn (string $name): string => $name === 'extensions_config' ? $this->dir : '/nowhere');
+
+        return new LlmsTxtConfigLoader($boltConfig);
     }
 }

@@ -22,3 +22,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Route `defaults` (`template`, `locale`, `max_age`) for serving more files,
   e.g. `/llms-full.txt`, from the same controller.
 - `enabled` switch.
+- Container registration without project binds or `#[Autowire]`: the controller extends Bolt's
+  `ExtensionController` and gets every dependency as a service, so a fresh `composer require` compiles before
+  `extensions:configure` has run. It is outside Bolt's frontend zone, so widgets never inject HTML into the text.
+- Validation of the config and route defaults: unknown keys and values of the wrong type are errors.
+- `X-Content-Type-Options: nosniff` on the response.

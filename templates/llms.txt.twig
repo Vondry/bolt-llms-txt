@@ -7,8 +7,13 @@
     Layout follows the spec: H1, an optional blockquote, free text without headings, then H2
     sections that contain only `- [name](url): notes` lists.
 
-    The `.txt.twig` extension switches Twig autoescaping off, so every CMS value goes through
-    `html_to_text` / `markdown_label`. Variables: `today` (Y-m-d), `now`, `baseUrl`, `locale`. -#}
+    Autoescaping is off (Symfony's default strategy does that for `.txt.twig` already; the tag below
+    makes sure of it), so every CMS value goes through `html_to_text` / `markdown_label`.
+    Variables: `today` (Y-m-d), `now`, `baseUrl`, `locale`.
+
+    Nothing here changes unless the content does (no date, stable order), so clients revalidating
+    with the ETag get a 304 until then. Each section lists at most 50 records. -#}
+{%- autoescape false -%}
 {%- set siteName = config.get('general/sitename')|html_to_text ?: app.request.host -%}
 {%- set payoff = config.get('general/payoff')|html_to_text -%}
 {%- set textFieldTypes = ['text', 'textarea', 'html', 'markdown', 'redactor', 'article'] -%}
@@ -20,11 +25,11 @@
 > {{ payoff }}
 
 {% endif %}
-This file is generated from the website's content management system; it lists what {{ baseUrl }} showed on {{ today }}.
+This file is generated from the content management system of {{ baseUrl }}, so it lists what the website shows.
 
 ## Website
 
-- [Homepage]({{ baseUrl }}/): the home page of {{ siteName }}.
+- [Homepage]({{ baseUrl }}/): the home page of {{ siteName }}
 
 {% for contentType in contentTypes %}
 {#- `page 1`, so `?page=` in the URL can never pick another page. -#}
@@ -33,16 +38,18 @@ This file is generated from the website's content management system; it lists wh
 ## {{ contentType.name|html_to_text }}
 
 {% for record in records %}
-{#- The record's text fields except its title, like Bolt's `|excerpt`, but each field converted on its
-    own, so paragraphs and fields don't run together. -#}
+{#- The excerpt is the start of the record's first text field with content, in the order the
+    ContentType defines its fields, title fields excluded. -#}
 {% set titleFields = record|title_fields_names %}
-{% set excerpt = record.fields
-    |filter(field => field.type in textFieldTypes and field.name not in titleFields)
-    |map(field => '<p>' ~ field ~ '</p>')
-    |join
-    |html_to_text(200) %}
+{% set excerpt = '' %}
+{% for name, field in record.definition.fields|default([]) %}
+{% if excerpt is empty and field.type in textFieldTypes and name not in titleFields and record.hasField(name) %}
+{% set excerpt = record.field(name)|html_to_text(200) %}
+{% endif %}
+{% endfor %}
 - [{{ record|title|markdown_label }}]({{ record|link(true) }}){{ excerpt is not empty ? ': ' ~ excerpt }}
 {% endfor %}
 
 {% endif %}
 {% endfor %}
+{% endautoescape %}
