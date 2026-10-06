@@ -27,7 +27,7 @@ final class ExtensionTest extends TestCase
      */
     public function testConfigFilenameMatchesTheLoader(): void
     {
-        $config = $this->createStub(Config::class);
+        $config = self::createStub(Config::class);
         $config->method('getPath')
             ->willReturn('/project/config/extensions');
 
@@ -42,6 +42,8 @@ final class ExtensionTest extends TestCase
         ]);
 
         $filenames = $extension->getConfigFilenames();
+        self::assertIsString($filenames['main'] ?? null);
+        self::assertIsString($filenames['local'] ?? null);
 
         self::assertSame(LlmsTxtConfigLoader::CONFIG_BASENAME . '.yaml', basename($filenames['main']));
         self::assertSame(LlmsTxtConfigLoader::CONFIG_BASENAME . '_local.yaml', basename($filenames['local']));

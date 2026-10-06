@@ -43,3 +43,41 @@ jobs:
       - run: composer install --no-progress --no-interaction
 
       - run: vendor/bin/phpunit --colors=always
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    env:
+      PHP_VERSION: 8.4
+      # Minimum line coverage of src/, in percent.
+      MIN_COVERAGE: 95
+
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: shivammathur/setup-php@b604ade2a87db23f8871b7182e69ec5e75effb45 # v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          extensions: json, mbstring, pdo, curl, pdo_sqlite
+          coverage: pcov
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ${{ env.COMPOSER_CACHE_DIR }}
+          key: ${{ runner.os }}-${{ env.PHP_VERSION }}-${{ hashFiles('**/composer.json') }}
+
+      - run: composer install --no-progress --no-interaction
+
+      - run: vendor/bin/phpunit --colors=always --coverage-text --coverage-clover=var/coverage.xml
+
+      - name: Check minimum coverage
+        run: |
+          php -r '
+            $metrics = simplexml_load_file("var/coverage.xml")->project->metrics;
+            $coverage = 100 * (int) $metrics["coveredstatements"] / max(1, (int) $metrics["statements"]);
+            printf("Line coverage: %.2f%% (minimum %d%%)\n", $coverage, getenv("MIN_COVERAGE"));
+            exit($coverage < (float) getenv("MIN_COVERAGE") ? 1 : 0);
+          '

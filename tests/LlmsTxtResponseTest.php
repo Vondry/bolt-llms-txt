@@ -18,6 +18,7 @@ final class LlmsTxtResponseTest extends TestCase
 
         self::assertSame(Response::HTTP_OK, $response->getStatusCode());
         self::assertSame('text/plain; charset=UTF-8', $response->headers->get('Content-Type'));
+        self::assertSame('nosniff', $response->headers->get('X-Content-Type-Options'));
         self::assertSame("# Site\n", $response->getContent());
         self::assertTrue($response->headers->hasCacheControlDirective('public'));
         self::assertSame('3600', $response->headers->getCacheControlDirective('max-age'));
@@ -55,6 +56,8 @@ final class LlmsTxtResponseTest extends TestCase
         $response = LlmsTxtResponse::create("# New\n", 3600, $request);
 
         self::assertSame(Response::HTTP_OK, $response->getStatusCode());
+        self::assertSame("# New\n", $response->getContent());
+        self::assertSame('"' . hash('xxh128', "# New\n") . '"', $response->getEtag());
     }
 
     public function testNormalize(): void

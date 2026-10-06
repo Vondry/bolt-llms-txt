@@ -6,6 +6,8 @@ request, so it always matches the content. You write the template; the extension
 - the `/llms.txt` route, rendered in a locale of your choice (records, `__()` / `|trans` and dates)
 - a `text/plain; charset=UTF-8` response that proxies and browsers may cache (`public`, `max_age` from the config),
   with an ETag, so clients get a `304 Not Modified` while nothing has changed
+- a server-side cache of the rendered file, dropped as soon as content changes, so most requests neither render the
+  template nor query the database
 - no firewall entry needed: Symfony normally makes every frontend response of Bolt `private`, the extension opts out
   for `/llms.txt`. It stays `private` for logged-in users and whenever a cookie is set
 - Twig filters that turn CMS field HTML into single-line Markdown text: `html_to_text`, `markdown_label`,
@@ -27,19 +29,21 @@ bin/console cache:clear
 
 `extensions:configure` copies the route and the `@llms-txt` Twig namespace into the project
 (`config/routes/extension_bolt-llms-txt.yaml`, `config/packages/extension_bolt-llms-txt.yaml`), and `--with-config`
-the configuration to `config/extensions/tomvondracek-llmstxt.yaml`.
+the configuration to `config/extensions/tomvondracek-llmstxt.yaml`. The extension's services need no configuration:
+Bolt registers them as they are.
 
 Remove a static `public/llms.txt` if there is one: Apache and nginx serve existing files before Symfony gets the
 request.
 
 ## Writing the template
 
-Create `llms.txt.twig` in your theme (or point `template` in the config at another file). The extension renders it
-with the usual Bolt Twig environment (`setcontent`, `config`, `__()`, `|link`, …) plus:
+Create `llms.txt.twig` in your theme (or point `template` in the config at another file). The extension looks it up in
+the theme (and its `template_directory`) first and renders it with the usual Bolt Twig environment (`setcontent`,
+`config`, `__()`, `|link`, …) plus:
 
 | Variable | Value |
 |---|---|
-| `today` | Today's date (`Y-m-d`) in the site's timezone (`general/timezone`) |
+| `today` | Today's date (`Y-m-d`) in the site's timezone (`general/timezone`); printing it changes the ETag daily |
 | `now` | The same moment as a `DateTimeImmutable` |
 | `baseUrl` | Scheme, host and base path, e.g. `https://example.com` |
 | `locale` | The locale the file is rendered in |
@@ -47,20 +51,25 @@ with the usual Bolt Twig environment (`setcontent`, `config`, `__()`, `|link`, �
 A minimal template:
 
 ```twig
-{#- The .txt.twig extension switches autoescaping off: pass every CMS value through the filters. -#}
+{#- Autoescaping must be off for a text file: pass every CMS value through the filters instead. -#}
+{%- autoescape false -%}
 {%- setcontent pages = 'pages' limit 1000 page 1 -%}
 # {{ config.get('general/sitename')|html_to_text }}
 
 > {{ config.get('general/payoff')|html_to_text }}
 
-This file is generated from the website's content management system on {{ today }}.
+This file is generated from the website's content management system.
 
 ## Pages
 
 {% for page in pages %}
-- [{{ page.title|markdown_label }}]({{ page|link(true) }}): {{ page.teaser|html_to_text }}
+- [{{ page.title|markdown_label }}]({{ page|link(true) }}): {{ page.teaser|html_to_text(200) }}
 {% endfor %}
+{% endautoescape %}
 ```
+
+Symfony's default `autoescape: name` strategy already switches escaping off for `.txt.twig` files; the tag keeps it
+off when a project sets `twig.autoescape: html`, which would turn `&` into `&amp;`.
 
 The [llms.txt format](https://llmstxt.org) in short: an H1, an optional `>` summary, free Markdown **without
 headings**, then H2 sections that contain only `- [name](url): notes` lists. An `## Optional` section holds links that
@@ -74,15 +83,19 @@ ETag still treat it like everyone else's.)
 
 | Filter | Does |
 |---|---|
-| `html_to_text` | Any field value (rich text, plain text, Twig markup) as one line of plain text. Paragraphs and list items are separated with punctuation instead of running together, entities are decoded once, `<script>`/`<style>` are dropped, image `alt` texts kept, and links stay Markdown links with absolute URLs. `html_to_text(200)` shortens the text to 200 characters at a word boundary, ending with `…`; links then keep only their text, so no link is cut in half. |
-| `markdown_label` | Like `html_to_text`, safe as the `[label]` of a Markdown link (`[` `]` become `(` `)`). Give it the raw field, not text that already went through `html_to_text`. |
-| `markdown_url` | A URL field as an absolute URL for the `(url)` of a Markdown link (`www.example.com` → `https://www.example.com`, `/page` → `https://site/page`), or `''` when it is not a link a reader can follow. |
+| `html_to_text` | Any field value (rich text, plain text, Twig markup) as one line of plain text. Paragraphs and list items are separated with punctuation instead of running together, entities are decoded once, invisible content (`<script>`, `<style>`, `<svg>`, form controls, media fallbacks, a full document's `<title>`) is dropped, image `alt` texts kept, and links stay Markdown links with absolute URLs (site-relative ones on the canonical host). `html_to_text(200)` shortens the text to 200 characters at a word boundary, ending with `…`, and stops reading a long field once it has enough; links then keep only their text, so no link is cut in half. |
+| `markdown_label` | The text only (links too keep only their text), safe as the `[label]` of a Markdown link (`[` `]` become `(` `)`). Give it the raw field, not text that already went through `html_to_text`. |
+| `markdown_url` | A URL field as an absolute URL for the `(url)` of a Markdown link (`www.example.com` → `https://www.example.com`, `info@example.com` → `mailto:info@example.com`, `/page` → `https://site/page`), or `''` when it is not a link a reader can follow (`javascript:`, `#anchor`, `page.html`). |
 
 ### Tips
 
 - Add `page 1` to every `setcontent`, so `?page=` in the URL can't pick another page of a listing.
-- Order everything deterministically (no `|shuffle`): an unchanged site then gives the same body and ETag.
-- `baseUrl` is the address `|link(true)` writes, so with `general/canonical` set both use the canonical host.
+- Order everything deterministically (no `|shuffle`) and leave out `today`/`now`: an unchanged site then gives the
+  same body and ETag, so revalidating clients get a 304.
+- `baseUrl` is the address `|link(true)` writes, so with `general/canonical` set both use the canonical host; so do
+  site-relative links in rich text.
+- For an excerpt, take one field (`record.teaser|html_to_text(200)`) rather than joining all of them: the filter stops
+  reading once it has enough text, but only within the field it is given.
 - Records are loaded in the configured `locale`. Fields without a value in that locale fall back to the default
   locale when `localization/fallback_when_missing` is on in `config/bolt/config.yaml`.
 
@@ -94,13 +107,35 @@ ETag still treat it like everyone else's.)
 enabled: true            # false = /llms.txt returns 404
 template: llms.txt.twig  # theme template; while it doesn't exist, the shipped generic one is used
 locale: ~                # one of the site's locales (app_locales), e.g. en; empty = the default locale
-max_age: 3600            # seconds browsers and proxies may cache the response
+max_age: 3600            # seconds browsers, proxies and the server cache may keep the file; 0 = render every time
 ```
 
 A `tomvondracek-llmstxt_local.yaml` next to it overrides single values, as for other Bolt extensions.
 
 A template you name explicitly (anything other than the default `llms.txt.twig`) must exist; a typo is an error, not a
-silent fallback.
+silent fallback. The same goes for the config itself: an unknown key or a value of the wrong type (`max_age: 1h`) is
+an error that names the problem, an empty value means the default.
+
+### Caching
+
+The rendered file is kept for `max_age` seconds, so the server is never staler than a proxy may already be. Separate
+copies are kept per template, locale, host and date. They live in the same cache as Bolt's own (its parsed config,
+menus): Symfony's `cache.app` pool, by default files under `var/cache/<env>/pools/app/`, tagged `llms_txt`.
+
+- Saving, deleting or changing the status of content (records, field values and translations, taxonomies, relations,
+  media) drops it at once, whether in the editor, with bulk actions or through the API.
+- Bolt's timed publishing and depublishing is a plain SQL update without events; it shows up once the cached copy
+  expires.
+- Logged-in users and debug mode (`APP_DEBUG=1`) always get a fresh rendering, so editors see their changes and template
+  edits show up immediately.
+- "Clear the cache" in Bolt's backend, `bin/console cache:clear` and Bolt's own reaction to edited config files
+  (`config/bolt/*.yaml`) delete it along with the rest of `var/cache`.
+- To drop only the llms.txt copies: `bin/console cache:pool:invalidate-tags llms_txt`.
+- If the project keeps `cache.app` in Redis, APCu or Memcached (`framework.cache.app`), `cache:clear` doesn't empty it,
+  just as it leaves Bolt's caches there; use `bin/console cache:pool:clear cache.app` or the command above.
+
+The template must therefore not depend on anything else in the request, such as query parameters, and printing `now`
+shows the time of the rendering, not of the request.
 
 ### More files, e.g. /llms-full.txt
 
@@ -143,7 +178,9 @@ bin/console extensions:configure --with-config
 | `src/LlmsTxtResponse.php` | Normalized body, `text/plain`, public caching, ETag, 304 |
 | `src/EventSubscriber/LlmsTxtResponseSubscriber.php` | Makes the response `private` when a cookie is set; removes Symfony's internal cache header |
 | `src/LlmsTxtConfig.php`, `src/LlmsTxtConfigLoader.php` | Typed config with defaults, loaded like Bolt's `ConfigTrait` |
-| `src/Twig/HtmlToTextExtension.php` | `html_to_text`, `markdown_label`, `markdown_url` |
+| `src/LlmsTxtCache.php`, `src/EventListener/ContentChangeListener.php` | Server-side cache of the rendered file; dropped on content changes |
+| `src/SiteUrl.php` | The site's canonical homepage URL, for `baseUrl` and site-relative links |
+| `src/Twig/HtmlToTextExtension.php`, `src/Twig/PlainTextBuffer.php` | `html_to_text`, `markdown_label`, `markdown_url`, in linear time |
 | `templates/llms.txt.twig` | Generic default template (`@llms-txt/llms.txt.twig`) |
 
 ## License

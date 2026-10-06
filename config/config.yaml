@@ -17,4 +17,6 @@ locale: ~
 
 # How long browsers and proxies may cache the response, in seconds. Clients can
 # revalidate with the ETag after that. 0 = always revalidate.
+# The server keeps the rendered file just as long, until content changes.
+# 0 = render on every request.
 max_age: 3600

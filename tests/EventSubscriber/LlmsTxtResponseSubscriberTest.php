@@ -75,7 +75,7 @@ final class LlmsTxtResponseSubscriberTest extends TestCase
             $response->headers->setCookie($cookie);
         }
 
-        $event = new ResponseEvent($this->createStub(HttpKernelInterface::class), $request, $requestType, $response);
+        $event = new ResponseEvent(self::createStub(HttpKernelInterface::class), $request, $requestType, $response);
         (new LlmsTxtResponseSubscriber())->onKernelResponse($event);
 
         return $event->getResponse();

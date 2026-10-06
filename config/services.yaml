@@ -4,6 +4,16 @@
 # Bolt's generated config/services_bolt.yaml: the controller, the Twig filters and
 # the response subscriber need nothing here.
 
+services:
+  # Drops the cached llms.txt when content changes. Doctrine listeners need a tag;
+  # this definition replaces the one from services_bolt.yaml, which the kernel
+  # loads first.
+  Tomvondracek\LlmsTxt\EventListener\ContentChangeListener:
+    autowire: true
+    tags:
+      - { name: doctrine.event_listener, event: onFlush }
+      - { name: doctrine.event_listener, event: postFlush }
+
 # Register the @llms-txt Twig namespace at container level, so it resolves
 # everywhere: web requests, the CLI (`debug:twig`, `lint:twig`, `cache:warmup`).
 # `BaseExtension::addTwigNamespace()` only prepends the path to the running Twig
