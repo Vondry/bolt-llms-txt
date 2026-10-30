@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-10-30
+
+### Changed
+
+- Requires `twig/twig` `^3.30` (was `^3.29`) and `symfony/polyfill-php84` `^1.43.0`
+  (was `^1.38.1`). Projects on older versions get them updated together with
+  this extension.
+- Development dependencies updated: `bolt/core` `^6.1.10`, PHPStan 2.3.4,
+  phpstan-phpunit 2.1.1, phpstan-strict-rules 2.1.0, Rector 2.8.3, ECS 13.3.12
+  and PHPUnit 11.5.57.
+
 ## [1.1.0] - 2026-10-06
 
 ### Added
@@ -75,6 +86,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   e.g. `/llms-full.txt`, from the same controller.
 - `enabled` switch.
 
-[Unreleased]: https://github.com/Vondry/bolt-llms-txt/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/Vondry/bolt-llms-txt/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/Vondry/bolt-llms-txt/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/Vondry/bolt-llms-txt/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Vondry/bolt-llms-txt/releases/tag/v1.0.0
