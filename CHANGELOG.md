@@ -6,6 +6,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-11-22
+
+### Changed
+
+- The Composer package leaves out the tests, CI and tool configuration (`.gitattributes` with
+  `export-ignore`).
+
+### Development
+
+- Dependencies updated. The runtime requirements are unchanged; for development, PHPStan 2.3.7,
+  phpstan-phpunit 2.1.2, phpstan-strict-rules 2.1.1 and Rector 2.8.5.
+- ECS, PHPStan, PHPUnit and Rector use the same configuration as the other extensions.
+- GitHub Actions are pinned to commit SHAs.
+
 ## [1.1.2] - 2026-11-21
 
 ### Changed
@@ -95,7 +109,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   e.g. `/llms-full.txt`, from the same controller.
 - `enabled` switch.
 
-[Unreleased]: https://github.com/Vondry/bolt-llms-txt/compare/v1.1.2...HEAD
+[Unreleased]: https://github.com/Vondry/bolt-llms-txt/compare/v1.1.3...HEAD
+[1.1.3]: https://github.com/Vondry/bolt-llms-txt/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/Vondry/bolt-llms-txt/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/Vondry/bolt-llms-txt/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/Vondry/bolt-llms-txt/compare/v1.0.0...v1.1.0
