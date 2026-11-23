@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Development
+
+- CI checks that every PHP file parses on each supported PHP version, runs
+  `composer audit` and actionlint, and cancels the older run when a newer push
+  arrives, like the other extensions.
+- `SECURITY.md`, and `support` and `funding` in `composer.json`.
+
 ## [1.1.3] - 2026-11-22
 
 ### Changed

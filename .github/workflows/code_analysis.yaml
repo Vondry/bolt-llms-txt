@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same branch or pull request makes the older run moot.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   COMPOSER_CACHE_DIR: /tmp/composer-cache
 
@@ -72,7 +77,7 @@ jobs:
 
   # Checks whose result doesn't depend on the PHP version run once.
   coding_standard:
-    name: Coding Standard and composer.json
+    name: Coding Standard, composer.json, audit and workflows
     runs-on: ubuntu-latest
     env:
       PHP_VERSION: 8.4
@@ -99,3 +104,12 @@ jobs:
       - run: vendor/bin/ecs check --ansi
 
       - run: composer validate --strict --ansi
+
+      # Known vulnerabilities in what the extension requires (not Bolt's own
+      # development tree); abandoned packages are reported, not fatal.
+      - name: Security audit of the dependencies
+        run: composer audit --no-dev --abandoned=report --ansi
+
+      # The workflows themselves (expressions, matrix, shell scripts).
+      - name: Lint the workflows
+        run: docker run --rm -v "$PWD:/repo:ro" -w /repo rhysd/actionlint:1.7.7 -no-color
