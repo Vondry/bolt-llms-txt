@@ -10,6 +10,17 @@
             "email": "tomasvondrac@gmail.com"
         }
     ],
+    "support": {
+        "issues": "https://github.com/Vondry/bolt-llms-txt/issues",
+        "source": "https://github.com/Vondry/bolt-llms-txt",
+        "security": "https://github.com/Vondry/bolt-llms-txt/security/policy"
+    },
+    "funding": [
+        {
+            "type": "github",
+            "url": "https://github.com/sponsors/Vondry"
+        }
+    ],
     "require": {
         "php": ">=8.2",
         "ext-dom": "*",
