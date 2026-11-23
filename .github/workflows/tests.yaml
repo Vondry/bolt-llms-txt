@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same branch or pull request makes the older run moot.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   COMPOSER_CACHE_DIR: /tmp/composer-cache
 
@@ -41,6 +46,11 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.php-version }}-${{ hashFiles('**/composer.json') }}
 
       - run: composer install --no-progress --no-interaction
+
+      # Every file parses on this version: PHPStan reads code with a parser of
+      # its own and does not notice syntax of a newer PHP (`new Foo()->bar()`).
+      - name: Syntax
+        run: find src tests -name '*.php' -print0 | xargs -0 -n 1 -P 4 php -d display_errors=stderr -l > /dev/null
 
       - run: vendor/bin/phpunit --colors=always
 
@@ -75,6 +85,8 @@ jobs:
 
       - name: Check minimum coverage
         run: |
+          # The `$` are PHP's, not the shell's.
+          # shellcheck disable=SC2016
           php -r '
             $metrics = simplexml_load_file("var/coverage.xml")->project->metrics;
             $coverage = 100 * (int) $metrics["coveredstatements"] / max(1, (int) $metrics["statements"]);
